@@ -1,0 +1,10 @@
+{
+  "doubaoBridge": {
+    "enabled": true,
+    "autoBridgeAllowed": false,
+    "defaultMode": "diagnosis",
+    "useDoubaoWeb": true,
+    "requireRealResponse": true,
+    "conversationsDir": "~/.ai-bridge/doubao-bridge/conversations"
+  }
+}
