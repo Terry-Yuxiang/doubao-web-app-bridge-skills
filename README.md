@@ -1,28 +1,53 @@
 # doubao-web-app-bridge-skills
 
-A Claude Code skill that bridges the agent to the **Doubao (豆包) web app** via Chrome DevTools Protocol (CDP). Use it to forward questions or long coding/debugging tasks to Doubao, read back real responses, and persist conversations for future reference.
+一个 **Claude Code Skill**，通过 Chrome DevTools Protocol（CDP）操控浏览器里的豆包网页版，让 Claude Code 智能体能够向豆包发送消息、读取回复、保存对话，并在未来继续已保存的对话。
 
-## What it does
+## 功能
 
-- Sends messages to Doubao web app from within a Claude Code session
-- Reads Doubao's responses back into the agent's context
-- Saves full conversations (text + code artifacts) as JSONL + Markdown
-- Navigates to previously saved conversations to continue them
-- Supports routing mode: toggle all messages through the bridge with `/doubao start` / `/doubao end`
+- 在 Claude Code 会话中向豆包发送消息
+- 将豆包的回复读回智能体上下文
+- 将完整对话保存为 JSONL + Markdown（含代码块）
+- 导航到已保存的对话继续追问
+- 路由模式：通过 `/doubao start` / `/doubao end` 将所有消息转发给豆包
 
-## Prerequisites
+## 工作原理
 
-- macOS with Google Chrome
-- Chrome launched with CDP on port 9222:
+### 消息发送
+
+豆包使用字节跳动内部的 semi-design 组件库，输入框是 React 托管的 `<textarea>`。直接设置 `.value` 不会触发 React 状态更新，send 按钮不会出现。
+
+解决方案：通过 `element.__reactProps.onChange()` 直接调用 React 的内部事件处理器，确保 React state 正确更新，send 按钮正常激活。
+
+### 消息提取
+
+直接读取渲染好的 DOM，不依赖任何后端 API：
+
+| 元素 | 选择器 |
+|---|---|
+| 输入框 | `[data-testid="chat_input_input"]` |
+| 发送按钮 | `[data-testid="chat_input_send_button"]` |
+| 用户消息 | `[data-testid="send_message"]` |
+| AI 回复 | `[data-testid="receive_message"]` |
+| 消息正文 | `[data-testid="message_text_content"]` |
+| 对话 URL | `https://www.doubao.com/chat/{纯数字ID}` |
+
+### navigate 注意事项
+
+导航到已保存对话后，豆包页面需要约 4 秒完成渲染才能正常使用输入框。脚本和 slash command 均已内置此等待时间。导航到具体对话 URL 需要已登录豆包账号。
+
+## 前置条件
+
+- macOS + Google Chrome
+- 启动带 CDP 的 Chrome：
   ```bash
   /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
     --remote-debugging-port=9222 \
     --user-data-dir=/tmp/doubao-cdp-profile
   ```
-- Logged in to doubao.com in that browser
+- 在该浏览器中打开 `https://www.doubao.com/chat/` 并登录
 - Python 3
 
-## Installation
+## 安装
 
 ```bash
 python3 -m venv .venv
@@ -30,66 +55,81 @@ python3 -m venv .venv
 pip install -r requirements.txt
 ```
 
-## Project layout
+## 目录结构
 
 ```
 .claude/commands/
-  doubao.md              <- /doubao slash command definition
+  doubao.md              ← /doubao slash command 定义
 references/
-  install.md             <- full installation and verification steps
-  bridge-patterns.md     <- context packet patterns and forwarding prompts
-  conversation-continuation.md  <- how to resume a saved conversation
+  install.md             ← 完整安装与验证步骤
+  bridge-patterns.md     ← context packet 模板和 prompt 模式
+  conversation-continuation.md  ← 恢复已保存对话的完整流程
 scripts/
-  doubao_web_probe.py    <- low-level CDP bridge: probe / ask / read / navigate
-  doubao_conversation_store.py  <- save current chat to conversations/
-  bridge_config.py       <- read config.json / config.example.json
-config.example.json      <- bridge policy (autoBridgeAllowed, defaultMode, etc.)
-state.json               <- current routing mode and active conversation
-SKILL.md                 <- skill definition loaded by Claude Code
+  doubao_web_probe.py    ← CDP 底层操作：probe / ask / read / navigate
+  doubao_conversation_store.py  ← 对话持久化：JSONL + meta + MD
+  bridge_config.py       ← 读取配置文件
+config.example.json      ← 配置模板
+state.json               ← 当前路由模式和活跃对话
+SKILL.md                 ← Claude Code skill 定义文件
 ```
 
-## Slash commands
+## Slash Command 用法
 
-| Command | Effect |
+| 命令 | 效果 |
 |---|---|
-| `/doubao start` | Enable routing mode — all subsequent messages forwarded to Doubao |
-| `/doubao end` | Disable routing mode |
-| `/doubao +<message>` | Route a single message through the bridge |
-| `/doubao conversation list` | List all saved conversations |
-| `/doubao conversation <name> +<message>` | Navigate to a named conversation and send a message |
+| `/doubao start` | 开启路由模式，后续所有消息转发给豆包 |
+| `/doubao end` | 关闭路由模式 |
+| `/doubao +<消息>` | 单条消息转发给豆包 |
+| `/doubao conversation list` | 列出所有已保存的对话 |
+| `/doubao conversation <名称> +<消息>` | 导航到指定对话并发消息 |
 
-`<name>` supports fuzzy matching: partial title words, abbreviations, and keywords all work.
+`<名称>` 支持模糊匹配：关键词、缩写均可。
 
-## Key scripts
+## 脚本说明
 
 ### `doubao_web_probe.py`
+
+CDP 底层操作：
 
 ```bash
 . .venv/bin/activate
 
+# 检查页面状态
 python scripts/doubao_web_probe.py probe
-python scripts/doubao_web_probe.py ask --question "Your question here"
+
+# 发送消息
+python scripts/doubao_web_probe.py ask --question "你的问题"
+
+# 读取页面末尾内容
 python scripts/doubao_web_probe.py read
+
+# 导航到已保存对话
 python scripts/doubao_web_probe.py navigate --chat-id <chatId>
 python scripts/doubao_web_probe.py navigate --url https://www.doubao.com/chat/<chatId>
 ```
 
 ### `doubao_conversation_store.py`
 
-Saves to `~/.ai-bridge/doubao-bridge/conversations/` (outside skills folder — survives updates):
+将当前豆包对话保存到 `~/.ai-bridge/doubao-bridge/conversations/`（存储在 skills 目录之外，升级或删除 skills 不会丢失）：
 
 ```bash
 python scripts/doubao_conversation_store.py --export-md --project my-project
-python scripts/doubao_conversation_store.py --list
-python scripts/doubao_conversation_store.py --find "keyword"
-python scripts/doubao_conversation_store.py --tag <chatId-prefix> tag1 tag2
 ```
 
-## Verification
+输出：`~/.ai-bridge/doubao-bridge/conversations/{slug}--{chatId}/conversation.jsonl`、`meta.json`、`conversation.md`
 
-See `references/install.md` for the full 6-step verification sequence.
+重复运行安全——只追加新轮次，已有消息自动去重。
 
-Quick smoke test:
+搜索和管理：
+
+```bash
+python scripts/doubao_conversation_store.py --list
+python scripts/doubao_conversation_store.py --find "关键词"
+python scripts/doubao_conversation_store.py --tag <chatId前缀> 标签1 标签2
+```
+
+## 快速验证
+
 ```bash
 . .venv/bin/activate
 python scripts/doubao_web_probe.py probe
@@ -99,13 +139,31 @@ python scripts/doubao_web_probe.py read
 python scripts/doubao_conversation_store.py --export-md --project bridge-testing
 ```
 
-## How conversation extraction works
+完整验证步骤见 `references/install.md`。
 
-Uses **DOM extraction** — reads `[data-testid="send_message"]` and `[data-testid="receive_message"]` elements directly from the rendered page. No API required.
+## 对话 Markdown 格式
 
-Input uses Doubao's semi-design textarea with React `__reactProps` onChange trigger (verified working).
+```markdown
+# 对话标题
 
-## config.json fields
+| Field | Value |
+|---|---|
+| Chat ID | `38418062256168706` |
+| Turns | 3 |
+
+---
+# Round 1
+
+## User
+
+用一句话解释什么是大语言模型
+
+## Assistant
+
+大语言模型是基于海量文本数据训练……
+```
+
+## config.json 配置项
 
 ```json
 {
@@ -120,13 +178,17 @@ Input uses Doubao's semi-design textarea with React `__reactProps` onChange trig
 }
 ```
 
+- `autoBridgeAllowed` — 为 `true` 时智能体可自动调用豆包处理长任务
+- `requireRealResponse` — 不允许将本地猜测伪装成豆包的回复
+- `conversationsDir` — 自定义对话存储路径
+
 ## Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=Terry-Yuxiang/doubao-web-app-bridge-skills&type=Date)](https://star-history.com/#Terry-Yuxiang/doubao-web-app-bridge-skills&Date)
 
-## Important constraints
+## 注意事项
 
-- Must be logged in to doubao.com — navigate requires an active session
-- Always wait 4+ seconds after navigate before calling ask
-- The automation browser must be running with `--remote-debugging-port=9222`
-- When acting as an AI agent: execute bash commands directly — do not invoke `/doubao` via the Skill tool
+- 需要登录豆包账号才能 navigate 到已保存的对话 URL
+- navigate 后必须等待 4 秒页面渲染完毕再调用 ask
+- Chrome 必须以 `--remote-debugging-port=9222` 启动
+- 作为 AI 智能体运行时：直接执行 bash 命令，不要通过 Skill tool 调用 `/doubao`
