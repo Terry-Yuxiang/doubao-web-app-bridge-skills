@@ -30,48 +30,6 @@ AI Agent 在执行长任务时经常需要：
 
 ---
 
-## 技术实现要点
-
-### 输入触发
-
-豆包使用字节跳动 semi-design 组件库，输入框是 React 托管的 `<textarea>`。普通 DOM 事件无法触发 React 状态更新。
-
-解法：通过 `element.__reactProps.onChange()` 调用 React 内部事件处理器，确保 send 按钮正常激活。此方案已在实际测试中验证稳定。
-
-### DOM 提取
-
-不调用任何后端 API，直接读取渲染好的 DOM：
-
-| 元素 | 选择器 |
-|---|---|
-| 输入框 | `[data-testid="chat_input_input"]` |
-| 发送按钮 | `[data-testid="chat_input_send_button"]` |
-| 用户消息 | `[data-testid="send_message"]` |
-| AI 回复 | `[data-testid="receive_message"]` |
-| 对话 URL | `https://www.doubao.com/chat/{数字ID}` |
-
-### navigate 等待
-
-导航到已保存对话后需等待约 4 秒让页面完全渲染，脚本和 slash command 均已内置此逻辑。navigate 到具体对话 URL 需要已登录豆包账号。
-
----
-
-## 对话存储
-
-所有对话存储在 **skills 目录之外**，升级或删除 skills 不会丢失数据：
-
-```
-~/.ai-bridge/doubao-bridge/conversations/
-  {标题slug}--{chatId}/
-    meta.json           ← chatId、标题、URL、保存时间、标签
-    conversation.jsonl  ← 每条消息一行 JSON
-    conversation.md     ← LLM 可读的 Markdown（Round/User/Assistant 层级）
-```
-
-重复保存安全，自动去重，只追加新轮次。
-
----
-
 ## 前置条件
 
 - macOS + Google Chrome
@@ -158,6 +116,46 @@ python scripts/doubao_web_probe.py navigate --chat-id 38418062256168706
 sleep 4
 python scripts/doubao_web_probe.py ask --question "继续上次的话题"
 ```
+
+---
+
+## 技术实现要点
+
+### 输入触发
+
+豆包使用字节跳动 semi-design 组件库，输入框是 React 托管的 `<textarea>`。普通 DOM 事件无法触发 React 状态更新。
+
+解法：通过 `element.__reactProps.onChange()` 调用 React 内部事件处理器，确保 send 按钮正常激活。此方案已在实际测试中验证稳定。
+
+### DOM 提取
+
+不调用任何后端 API，直接读取渲染好的 DOM：
+
+| 元素 | 选择器 |
+|---|---|
+| 输入框 | `[data-testid="chat_input_input"]` |
+| 发送按钮 | `[data-testid="chat_input_send_button"]` |
+| 用户消息 | `[data-testid="send_message"]` |
+| AI 回复 | `[data-testid="receive_message"]` |
+| 对话 URL | `https://www.doubao.com/chat/{数字ID}` |
+
+### navigate 等待
+
+导航到已保存对话后需等待约 4 秒让页面完全渲染，脚本和 slash command 均已内置此逻辑。navigate 到具体对话 URL 需要已登录豆包账号。
+
+### 对话存储
+
+所有对话存储在 **skills 目录之外**，升级或删除 skills 不会丢失数据：
+
+```
+~/.ai-bridge/doubao-bridge/conversations/
+  {标题slug}--{chatId}/
+    meta.json           ← chatId、标题、URL、保存时间、标签
+    conversation.jsonl  ← 每条消息一行 JSON
+    conversation.md     ← LLM 可读的 Markdown（Round/User/Assistant 层级）
+```
+
+重复保存安全，自动去重，只追加新轮次。
 
 ---
 
